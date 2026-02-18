@@ -1,0 +1,59 @@
+
+[build-system]
+requires = ["setuptools>=75", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "clash-royale-gymnasium"
+version = "0.1.0"
+description = "Gymnasium environment for Clash Royale RL training — AlphaStar-style league, hierarchical actions, rich dict observations, and PDF reporting."
+authors = [
+    { name = "Fabrizio Montoya" }
+]
+readme = "README.md"
+requires-python = ">=3.10"
+license = { text = "MIT" }
+
+dependencies = [
+    "numpy>=1.26",
+    "gymnasium>=1.0",
+    "clash-royale-engine>=0.1.0",
+]
+
+[project.optional-dependencies]
+
+# PDF report generation
+report = [
+    "matplotlib>=3.8",
+    "fpdf2>=2.7",
+]
+
+# Development tools
+dev = [
+    "pytest>=8.0",
+    "pytest-cov>=5.0",
+    "ruff>=0.5",
+    "pyrefly>=0.52.0",
+    "mypy>=1.8",
+    "matplotlib>=3.8",
+    "fpdf2>=2.7",
+]
+
+[tool.setuptools.packages.find]
+include = ["clash_royale_gymnasium*"]
+
+[tool.ruff]
+line-length = 100
+target-version = "py312"
+[tool.ruff.lint]
+select = ["E", "F", "I"]
+
+[tool.mypy]
+python_version = "3.12"
+strict = true
+ignore_missing_imports = true
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+addopts = "-v --tb=short -ra"
+markers = ["slow: marks tests as slow"]

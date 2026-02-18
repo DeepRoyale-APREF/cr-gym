@@ -1,0 +1,63 @@
+# ── Python ────────────────────────────────────────────────────────────
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+
+# ── Distribution / Packaging ──────────────────────────────────────────
+build/
+dist/
+*.egg-info/
+*.egg
+wheels/
+pip-wheel-metadata/
+
+# ── Virtual Environments ──────────────────────────────────────────────
+.venv/
+venv/
+/env/
+/ENV/
+.conda/
+
+# ── Testing ───────────────────────────────────────────────────────────
+.pytest_cache/
+.coverage
+htmlcov/
+.tox/
+.nox/
+
+# ── Type Checking / Linting ──────────────────────────────────────────
+.mypy_cache/
+.ruff_cache/
+
+# ── IDE / Editors ─────────────────────────────────────────────────────
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+.project
+.settings/
+
+# ── Jupyter ───────────────────────────────────────────────────────────
+.ipynb_checkpoints/
+
+# ── OS ────────────────────────────────────────────────────────────────
+.DS_Store
+Thumbs.db
+Desktop.ini
+
+# ── RL Training Artifacts ─────────────────────────────────────────────
+logs/
+tensorboard_logs/
+checkpoints/
+*.zip
+*.pkl
+*.gz
+wandb/
+
+# ── Trained Models ────────────────────────────────────────────────────
+models/
+*.pt
+*.pth
+*.onnx
