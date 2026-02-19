@@ -98,6 +98,12 @@ class ClashRoyaleGymEnv(gym.Env):
         Game duration in seconds.
     speed_multiplier : float
         Internal simulation speed-up factor.
+    frame_skip : int
+        Number of engine frames per ``step()`` call.  The RL action is
+        applied on the **first** frame; subsequent frames advance with
+        noop while the opponent keeps acting normally.  Rewards are
+        **accumulated** across all skipped frames.  Default ``1`` (no
+        skip).  Set to ``3`` for ~10 decisions/second at 30 fps.
     seed : int
         Random seed.
     """
@@ -113,6 +119,7 @@ class ClashRoyaleGymEnv(gym.Env):
         fps: int = DEFAULT_FPS,
         time_limit: float = GAME_DURATION,
         speed_multiplier: float = 1.0,
+        frame_skip: int = 1,
         seed: int = 0,
         render_mode: Optional[str] = None,
     ) -> None:
@@ -120,6 +127,7 @@ class ClashRoyaleGymEnv(gym.Env):
 
         self.render_mode = render_mode
         self._player_id = 0
+        self._frame_skip = max(1, frame_skip)
 
         # Reward
         self._reward_fn = reward_fn or default_reward_function()
@@ -236,29 +244,56 @@ class ClashRoyaleGymEnv(gym.Env):
             engine_action = None
             action_valid = False
 
-        # ── Step engine ───────────────────────────────────────────────────
-        try:
-            state_p0, _, done = self.engine.step_with_action(
-                player_id=self._player_id, action=engine_action,
+        # ── Step engine (with frame skipping) ─────────────────────────────
+        #
+        # Frame 1: apply the RL agent's action + opponent acts.
+        # Frames 2..frame_skip: RL agent does noop, opponent keeps acting.
+        # Rewards accumulate across all sub-frames.
+        #
+        cumulative_reward = 0.0
+        cumulative_breakdown: Dict[str, float] = {}
+        done = False
+
+        for sub_frame in range(self._frame_skip):
+            frame_action = engine_action if sub_frame == 0 else None
+            try:
+                state_p0, _, done = self.engine.step_with_action(
+                    player_id=self._player_id, action=frame_action,
+                )
+            except InvalidActionError:
+                state_p0, _, done = self.engine.step_with_action(
+                    player_id=self._player_id, action=None,
+                )
+                if sub_frame == 0:
+                    action_valid = False
+
+            # Compute reward for this sub-frame
+            ctx = self._build_reward_context(state_p0, h_action, action_valid, done)
+            sub_reward = self._reward_fn(ctx)
+            sub_bd = self._reward_fn.breakdown(ctx)
+            cumulative_reward += sub_reward
+            for k, v in sub_bd.items():
+                cumulative_breakdown[k] = cumulative_breakdown.get(k, 0.0) + v
+
+            # Update trackers after each sub-frame so next sub-frame gets
+            # correct deltas
+            self._prev_towers_destroyed = self.engine.count_towers_destroyed(
+                self._player_id,
             )
-        except InvalidActionError:
-            state_p0, _, done = self.engine.step_with_action(
-                player_id=self._player_id, action=None,
+            self._prev_own_towers_alive = self._count_own_towers_alive()
+            self._prev_leaked_elixir = self.engine.get_leaked_elixir(
+                self._player_id,
             )
-            action_valid = False
+
+            if done:
+                break
 
         if not h_action.is_noop and action_valid:
             self._n_actions += 1
 
-        # ── Reward ────────────────────────────────────────────────────────
-        ctx = self._build_reward_context(state_p0, h_action, action_valid, done)
-        reward = self._reward_fn(ctx)
+        reward = cumulative_reward
+        self._reward_breakdown = cumulative_breakdown
         self._total_reward += reward
-
-        # Update trackers
-        self._prev_towers_destroyed = self.engine.count_towers_destroyed(self._player_id)
-        self._prev_own_towers_alive = self._count_own_towers_alive()
-        self._prev_leaked_elixir = self.engine.get_leaked_elixir(self._player_id)
 
         # ── Observation ───────────────────────────────────────────────────
         obs = self._build_obs(state_p0)
@@ -337,7 +372,7 @@ class ClashRoyaleGymEnv(gym.Env):
     # ── Info dict (stats visible to logger / league) ──────────────────────
 
     def _build_info(self, state: State, *, action_valid: bool) -> Dict[str, Any]:
-        return {
+        info: Dict[str, Any] = {
             "action_valid": action_valid,
             "elixir": state.numbers.elixir,
             "towers_destroyed": self.engine.count_towers_destroyed(self._player_id),
@@ -346,7 +381,12 @@ class ClashRoyaleGymEnv(gym.Env):
             "n_actions": self._n_actions,
             "step_count": self._step_count,
             "time_remaining": state.numbers.time_remaining,
+            "reward_breakdown": getattr(self, "_reward_breakdown", {}),
         }
+        # Engine-level debug signals (if method exists in engine version)
+        if hasattr(self.engine, "debug_reward_signals"):
+            info["engine_debug"] = self.engine.debug_reward_signals(self._player_id)
+        return info
 
     # ── Helpers ───────────────────────────────────────────────────────────
 
