@@ -38,36 +38,52 @@ class DamageComponent(RewardComponent):
 
 
 class ElixirComponent(RewardComponent):
-    """Penalise poor elixir management.
+    """Event-driven elixir management reward (sparse, not every frame).
 
-    Two sub-signals:
+    Unlike a continuous deficit signal, this component only produces a
+    non-zero value when something *happens*:
 
-    1. **Elixir advantage deficit** (continuous):
-       ``-(mean_deck_cost - (current_elixir + troop_value)) / MAX_ELIXIR``
-       Negative when you have less elixir invested than your average card cost.
+    1. **Leaked elixir** (event — only when ``leaked_delta > 0``):
+       Penalises wasted elixir at the 10-cap.  Uses a sigmoid mapping
+       so small leaks cost little but large ones hurt.
+       ``-sigmoid_norm(leaked_delta)``
 
-    2. **Leaked elixir** (continuous):
-       ``-sigmoid_norm(leaked_delta)``  where ``sigmoid_norm`` maps [0, ∞) → [0, 1)
-       via ``2/(1+exp(-k*x)) - 1`` so small leaks are cheap but large ones hurt.
+    2. **Elixir spend** (event — only on the action-frame of a non-NOOP):
+       Small positive bonus for actually deploying a card, discouraging
+       passive hoarding.  ``+spend_bonus``
+
+    Most frames → returns 0.  This keeps the signal sparse so it does
+    not drown out tower-damage and terminal rewards.
     """
 
-    def __init__(self, weight: float = 1.0, leak_sensitivity: float = 0.5) -> None:
+    def __init__(
+        self,
+        weight: float = 1.0,
+        leak_sensitivity: float = 0.5,
+        spend_bonus: float = 0.1,
+    ) -> None:
         super().__init__(weight)
         self._leak_k = leak_sensitivity
+        self._spend_bonus = spend_bonus
 
     def compute(self, ctx: RewardContext) -> float:
-        max_elixir = 10.0
+        reward = 0.0
 
-        # 1. Elixir deficit
-        invested = ctx.current_elixir + ctx.troop_elixir_value
-        deficit = (ctx.mean_deck_cost - invested) / max_elixir
-        deficit = max(0.0, deficit)  # only penalise deficit, not surplus
-
-        # 2. Leaked elixir (this frame's increment)
+        # 1. Leaked elixir penalty (fires only when delta > 0)
         leaked_delta = ctx.leaked_elixir - ctx.prev_leaked_elixir
-        leak_penalty = self._sigmoid_norm(leaked_delta)
+        if leaked_delta > 0:
+            reward -= self._sigmoid_norm(leaked_delta)
 
-        return -(deficit + leak_penalty)
+        # 2. Elixir spend bonus (only on the action frame of a real play)
+        if (
+            ctx.is_action_frame
+            and ctx.action is not None
+            and not ctx.action.is_noop
+            and ctx.action_valid
+        ):
+            reward += self._spend_bonus
+
+        return reward
 
     def _sigmoid_norm(self, x: float) -> float:
         """Map [0, ∞) → [0, 1) with tuneable sensitivity."""

@@ -19,6 +19,7 @@ from clash_royale_engine.utils.constants import CARD_STATS, CARD_VOCAB
 
 from clash_royale_gymnasium.types.observations import (
     CARD_FEATURE_DIM,
+    DECK_SIZE,
     MAX_TROOPS,
     SCALAR_DIM,
     TROOP_FEATURE_DIM,
@@ -123,21 +124,31 @@ def encode_observation(
         frame_ratio=frame_ratio,
     )
 
-    # ── Cards (own hand only) ─────────────────────────────────────────────
-    cards_arr = np.zeros((4, CARD_FEATURE_DIM), dtype=np.float32)
+    # ── Cards (all 8 deck cards with hand/affordability info) ───────────
+    deck = state.deck if state.deck else [c.name for c in state.cards]
+    hand_names: List[str] = [c.name for c in state.cards]
+    ready_set = set(state.ready)
+
+    cards_arr = np.zeros((DECK_SIZE, CARD_FEATURE_DIM), dtype=np.float32)
     card_names: List[str] = []
 
-    for i, card in enumerate(state.cards):
-        if i >= 4:
-            break
+    for i, deck_card_name in enumerate(deck[:DECK_SIZE]):
+        stats = CARD_STATS.get(deck_card_name, {})
+        is_in_hand = deck_card_name in hand_names
+        # A card is affordable only if it's in hand and its hand slot is ready
+        is_affordable = False
+        if is_in_hand:
+            hand_slot = hand_names.index(deck_card_name)
+            is_affordable = hand_slot in ready_set
         ci = CardInfo(
-            name_idx=_CARD_NAME_TO_IDX.get(card.name, 0),
-            cost=card.cost,
-            is_spell=card.is_spell,
-            is_affordable=(i in state.ready),
+            name_idx=_CARD_NAME_TO_IDX.get(deck_card_name, 0),
+            cost=stats.get("elixir", 0),
+            is_spell=stats.get("is_spell", False),
+            is_in_hand=is_in_hand,
+            is_affordable=is_affordable,
         )
         cards_arr[i] = ci.to_array()
-        card_names.append(card.name)
+        card_names.append(deck_card_name)
 
     return Observation(
         troops=troops,

@@ -1,17 +1,18 @@
 """Action masking — compute per-head masks from engine state.
 
 Masks enforce **only valid actions** so the policy never proposes an
-illegal placement.  The hierarchical heads are masked sequentially:
+illegal placement.  The hierarchical heads are masked autoregressively:
 
 1. **strategy** — always all-valid (the agent can choose any intent).
-2. **card** — affordable hand slots + noop.  Noop is always valid.
-3. **tile_x / tile_y** — own-side tiles + unlocked pocket tiles.
-   Spells can target any tile.
+2. **card** — deck cards that are in hand AND affordable, + noop.
+3. **tile_x / tile_y per card** — per-card placement masks so the model
+   learns card-specific tile rules (spells -> anywhere, troops -> own side
+   + pocket if unlocked).
 """
 
 from __future__ import annotations
 
-from typing import Optional, Tuple
+from typing import List, Optional, Tuple
 
 import numpy as np
 
@@ -29,7 +30,8 @@ from clash_royale_engine.utils.constants import (
 from clash_royale_gymnasium.types.actions import (
     ActionMask,
     HierarchicalAction,
-    N_CARDS,
+    N_DECK_SIZE,
+    N_HAND_SIZE,
     N_STRATEGIES,
     N_TILE_X,
     N_TILE_Y,
@@ -38,85 +40,96 @@ from clash_royale_gymnasium.types.actions import (
 )
 
 
+def _troop_tile_masks(
+    *,
+    enemy_left_princess_dead: bool,
+    enemy_right_princess_dead: bool,
+) -> Tuple[np.ndarray, np.ndarray]:
+    """Tile masks for a troop card (own side + pocket)."""
+    tx = np.ones(N_TILE_X, dtype=bool)
+    ty = np.zeros(N_TILE_Y, dtype=bool)
+
+    for y in range(BRIDGE_Y):
+        ty[y] = True
+
+    pocket_min_y = int(RIVER_Y_MAX)
+    pocket_max_y = int(RIVER_Y_MAX) + POCKET_DEPTH - 1
+    if enemy_left_princess_dead or enemy_right_princess_dead:
+        for y in range(pocket_min_y, pocket_max_y + 1):
+            if y < N_TILE_Y:
+                ty[y] = True
+
+    return tx, ty
+
+
+def _spell_tile_masks() -> Tuple[np.ndarray, np.ndarray]:
+    """Tile masks for a spell card (anywhere)."""
+    return np.ones(N_TILE_X, dtype=bool), np.ones(N_TILE_Y, dtype=bool)
+
+
 def compute_action_mask(
     state: State,
     *,
     enemy_left_princess_dead: bool = False,
     enemy_right_princess_dead: bool = False,
 ) -> ActionMask:
-    """Build masks for all four hierarchical heads.
+    """Build masks for all hierarchical heads.
+
+    Card indices are **deck-indexed** (0-7) referencing the full 8-card
+    deck, not the 4-card hand.  A deck card is valid only when it is
+    currently in the hand AND affordable.  Tile masks are computed
+    per-card so the autoregressive model can condition placement on the
+    chosen card.
 
     Parameters
     ----------
     state : State
-        The agent's (partial) game state.
+        The agent's (partial) game state (must include ``state.deck``).
     enemy_left_princess_dead, enemy_right_princess_dead : bool
         Whether opponent princess towers have been destroyed (enables pocket).
     """
-    # ── Strategy: always all valid ────────────────────────────────────────
     strategy_mask = np.ones(N_STRATEGIES, dtype=bool)
 
-    # ── Card mask: playable slots + noop ──────────────────────────────────
-    card_mask = np.zeros(N_CARDS + 1, dtype=bool)
-    card_mask[NOOP_IDX] = True  # noop always valid
+    n_options = N_DECK_SIZE + 1  # 8 deck + 1 noop
+    card_mask = np.zeros(n_options, dtype=bool)
+    card_mask[NOOP_IDX] = True
 
-    for idx in state.ready:
-        if 0 <= idx < N_CARDS:
-            card_mask[idx] = True
+    hand_names: List[str] = [c.name for c in state.cards]
+    ready_set = set(state.ready)
+    deck = state.deck if state.deck else [c.name for c in state.cards]
 
-    # ── Tile masks: valid placement zones ─────────────────────────────────
-    # Compute the union of valid tiles across all playable cards.
-    # A tile is valid if ANY playable card can be placed there.
-    tile_x_mask = np.zeros(N_TILE_X, dtype=bool)
-    tile_y_mask = np.zeros(N_TILE_Y, dtype=bool)
+    for deck_idx, deck_card_name in enumerate(deck[:N_DECK_SIZE]):
+        if deck_card_name in hand_names:
+            hand_slot = hand_names.index(deck_card_name)
+            if hand_slot in ready_set:
+                card_mask[deck_idx] = True
 
-    has_playable_spell = False
-    has_playable_troop = False
+    tile_x_per_card = np.zeros((n_options, N_TILE_X), dtype=bool)
+    tile_y_per_card = np.zeros((n_options, N_TILE_Y), dtype=bool)
 
-    for idx in state.ready:
-        if idx < 0 or idx >= N_CARDS:
-            continue
-        card = state.cards[idx]
-        stats = CARD_STATS.get(card.name)
+    for deck_idx, deck_card_name in enumerate(deck[:N_DECK_SIZE]):
+        stats = CARD_STATS.get(deck_card_name)
         if stats is None:
             continue
-        if stats.get("is_spell", False):
-            has_playable_spell = True
+        is_spell = stats.get("is_spell", False)
+        if is_spell:
+            tx, ty = _spell_tile_masks()
         else:
-            has_playable_troop = True
+            tx, ty = _troop_tile_masks(
+                enemy_left_princess_dead=enemy_left_princess_dead,
+                enemy_right_princess_dead=enemy_right_princess_dead,
+            )
+        tile_x_per_card[deck_idx] = tx
+        tile_y_per_card[deck_idx] = ty
 
-    if has_playable_spell:
-        # Spells can target anywhere on the grid
-        tile_x_mask[:] = True
-        tile_y_mask[:] = True
-    elif has_playable_troop:
-        # Troops: own side always valid
-        tile_x_mask[:] = True  # all columns are valid on own side
-        for y in range(BRIDGE_Y):
-            tile_y_mask[y] = True
-
-        # Pocket tiles (enemy side, post-river)
-        pocket_min_y = int(RIVER_Y_MAX)  # 17
-        pocket_max_y = int(RIVER_Y_MAX) + POCKET_DEPTH - 1  # 19
-
-        if enemy_left_princess_dead or enemy_right_princess_dead:
-            for y in range(pocket_min_y, pocket_max_y + 1):
-                if y < N_TILE_Y:
-                    tile_y_mask[y] = True
-            # x is already all-True (filtered per-card at validation)
-
-    # If nothing is playable, only noop — tiles don't matter but mark
-    # at least one so the model has a valid sample.
-    if not tile_x_mask.any():
-        tile_x_mask[0] = True
-    if not tile_y_mask.any():
-        tile_y_mask[0] = True
+    tile_x_per_card[NOOP_IDX, :] = True
+    tile_y_per_card[NOOP_IDX, :] = True
 
     return ActionMask(
         strategy=strategy_mask,
         card=card_mask,
-        tile_x=tile_x_mask,
-        tile_y=tile_y_mask,
+        tile_x_per_card=tile_x_per_card,
+        tile_y_per_card=tile_y_per_card,
     )
 
 
@@ -134,31 +147,36 @@ def validate_hierarchical(
     if action.is_noop:
         return True, None
 
-    if action.card_idx < 0 or action.card_idx >= N_CARDS:
+    deck = state.deck if state.deck else [c.name for c in state.cards]
+
+    if action.card_idx < 0 or action.card_idx >= len(deck):
         return False, f"Invalid card index: {action.card_idx}"
 
-    card = state.cards[action.card_idx]
-    if action.card_idx not in state.ready:
-        return False, f"Card {card.name} not affordable (idx={action.card_idx})"
+    card_name = deck[action.card_idx]
+    hand_names = [c.name for c in state.cards]
 
-    stats = CARD_STATS.get(card.name)
+    if card_name not in hand_names:
+        return False, f"Card {card_name} not in hand (deck_idx={action.card_idx})"
+
+    hand_slot = hand_names.index(card_name)
+    if hand_slot not in state.ready:
+        return False, f"Card {card_name} not affordable (hand_slot={hand_slot})"
+
+    stats = CARD_STATS.get(card_name)
     if stats is None:
-        return False, f"Unknown card: {card.name}"
+        return False, f"Unknown card: {card_name}"
 
-    # Bounds
     if not (0 <= action.tile_x < N_TILE_X and 0 <= action.tile_y < N_TILE_Y):
         return False, f"Tile ({action.tile_x}, {action.tile_y}) out of bounds"
 
-    # Placement zone (spells bypass)
     is_spell = stats.get("is_spell", False)
     if not is_spell and action.tile_y >= BRIDGE_Y:
-        # Must be in a valid pocket
         in_left = action.tile_x < LANE_DIVIDER_X
         lane_ok = (in_left and enemy_left_princess_dead) or (
             not in_left and enemy_right_princess_dead
         )
         if not lane_ok:
-            return False, "Cannot place troop on enemy side — tower still standing"
+            return False, "Cannot place troop on enemy side -- tower still standing"
 
         pocket_min = int(RIVER_Y_MAX)
         pocket_max = int(RIVER_Y_MAX) + POCKET_DEPTH - 1

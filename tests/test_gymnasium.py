@@ -26,6 +26,7 @@ from clash_royale_gymnasium.types.actions import (
     ActionMask,
     HierarchicalAction,
     N_CARDS,
+    N_DECK_SIZE,
     N_STRATEGIES,
     N_TILE_X,
     N_TILE_Y,
@@ -34,6 +35,7 @@ from clash_royale_gymnasium.types.actions import (
 )
 from clash_royale_gymnasium.types.observations import (
     CARD_FEATURE_DIM,
+    DECK_SIZE,
     MAX_TROOPS,
     SCALAR_DIM,
     TROOP_FEATURE_DIM,
@@ -99,7 +101,7 @@ class TestObservationTypes:
         assert arr.shape == (TROOP_FEATURE_DIM,)
 
     def test_card_info_array_shape(self) -> None:
-        ci = CardInfo(name_idx=0, cost=5, is_spell=False, is_affordable=True)
+        ci = CardInfo(name_idx=0, cost=5, is_spell=False, is_in_hand=True, is_affordable=True)
         arr = ci.to_array()
         assert arr.shape == (CARD_FEATURE_DIM,)
 
@@ -108,7 +110,7 @@ class TestObservationTypes:
             troops=np.zeros((MAX_TROOPS, TROOP_FEATURE_DIM), dtype=np.float32),
             troop_mask=np.zeros(MAX_TROOPS, dtype=bool),
             scalars=np.zeros(SCALAR_DIM, dtype=np.float32),
-            cards=np.zeros((4, CARD_FEATURE_DIM), dtype=np.float32),
+            cards=np.zeros((DECK_SIZE, CARD_FEATURE_DIM), dtype=np.float32),
         )
         d = obs.to_dict()
         assert "troops" in d
@@ -152,7 +154,7 @@ class TestActionTypes:
         assert "tile_x" in space.spaces
         assert "tile_y" in space.spaces
         assert space["strategy"].n == N_STRATEGIES
-        assert space["card"].n == N_CARDS + 1  # +1 noop
+        assert space["card"].n == N_DECK_SIZE + 1  # +1 noop
         assert space["tile_x"].n == N_TILE_X
         assert space["tile_y"].n == N_TILE_Y
 
@@ -161,17 +163,18 @@ class TestActionMaskShape:
     """Test mask shapes and noop guarantee."""
 
     def test_mask_to_dict_keys(self) -> None:
+        n_options = N_DECK_SIZE + 1
         mask = ActionMask(
             strategy=np.ones(N_STRATEGIES, dtype=bool),
-            card=np.ones(N_CARDS + 1, dtype=bool),
-            tile_x=np.ones(N_TILE_X, dtype=bool),
-            tile_y=np.ones(N_TILE_Y, dtype=bool),
+            card=np.ones(n_options, dtype=bool),
+            tile_x_per_card=np.ones((n_options, N_TILE_X), dtype=bool),
+            tile_y_per_card=np.ones((n_options, N_TILE_Y), dtype=bool),
         )
         d = mask.to_dict()
         assert d["strategy"].shape == (N_STRATEGIES,)
-        assert d["card"].shape == (N_CARDS + 1,)
-        assert d["tile_x"].shape == (N_TILE_X,)
-        assert d["tile_y"].shape == (N_TILE_Y,)
+        assert d["card"].shape == (n_options,)
+        assert d["tile_x_per_card"].shape == (n_options, N_TILE_X)
+        assert d["tile_y_per_card"].shape == (n_options, N_TILE_Y)
 
 
 # ══════════════════════════════════════════════════════════════════════════════
@@ -287,7 +290,6 @@ class TestRewardComponents:
         assert "DamageComponent" in bd
         assert "ElixirComponent" in bd
         assert "TerminalComponent" in bd
-        assert "StrategyComponent" in bd
 
 
 class TestCustomReward:
@@ -335,7 +337,7 @@ class TestEnvironment:
         assert obs["troops"].shape == (MAX_TROOPS, TROOP_FEATURE_DIM)
         assert obs["troop_mask"].shape == (MAX_TROOPS,)
         assert obs["scalars"].shape == (SCALAR_DIM,)
-        assert obs["cards"].shape == (4, CARD_FEATURE_DIM)
+        assert obs["cards"].shape == (DECK_SIZE, CARD_FEATURE_DIM)
 
     def test_obs_partial_no_enemy_elixir(self, env: ClashRoyaleGymEnv) -> None:
         """Scalars should NOT contain enemy elixir (fog-of-war)."""
@@ -346,10 +348,11 @@ class TestEnvironment:
     def test_action_mask_in_obs(self, env: ClashRoyaleGymEnv) -> None:
         obs, _ = env.reset()
         am = obs["action_mask"]
+        n_options = N_DECK_SIZE + 1
         assert am["strategy"].shape == (N_STRATEGIES,)
-        assert am["card"].shape == (N_CARDS + 1,)
-        assert am["tile_x"].shape == (N_TILE_X,)
-        assert am["tile_y"].shape == (N_TILE_Y,)
+        assert am["card"].shape == (n_options,)
+        assert am["tile_x_per_card"].shape == (n_options, N_TILE_X)
+        assert am["tile_y_per_card"].shape == (n_options, N_TILE_Y)
 
     def test_noop_always_valid(self, env: ClashRoyaleGymEnv) -> None:
         obs, _ = env.reset()
@@ -369,7 +372,7 @@ class TestEnvironment:
         card_mask = obs["action_mask"]["card"]
 
         # Find a playable card
-        playable = [i for i in range(N_CARDS) if card_mask[i]]
+        playable = [i for i in range(N_DECK_SIZE) if card_mask[i]]
         if playable:
             card_idx = playable[0]
             action = {"strategy": 0, "card": card_idx, "tile_x": 9, "tile_y": 5}

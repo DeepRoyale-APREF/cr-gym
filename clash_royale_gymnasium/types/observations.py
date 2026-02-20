@@ -31,8 +31,11 @@ SCALAR_DIM: int = 16
 
 Note: ``enemy_elixir`` is **excluded** (fog-of-war)."""
 
-CARD_FEATURE_DIM: int = 4
-"""Per-card feature: [name_idx, cost, is_spell, is_affordable]."""
+DECK_SIZE: int = 8
+"""Number of cards in the deck (observation encodes ALL deck cards)."""
+
+CARD_FEATURE_DIM: int = 5
+"""Per-card feature: [name_idx, cost, is_spell, is_in_hand, is_affordable]."""
 
 
 # ── Dataclasses ───────────────────────────────────────────────────────────────
@@ -82,12 +85,13 @@ class TroopInfo:
 
 @dataclass(slots=True)
 class CardInfo:
-    """A card in hand — ready for the scalar module or masking."""
+    """A card in the deck — encodes identity, cost, and availability."""
 
-    name_idx: int    # vocabulary index
-    cost: int        # raw elixir cost
+    name_idx: int      # vocabulary index
+    cost: int          # raw elixir cost
     is_spell: bool
-    is_affordable: bool
+    is_in_hand: bool   # True if this deck card is currently in the 4-card hand
+    is_affordable: bool  # True if in hand AND affordable
 
     def to_array(self) -> np.ndarray:
         """Return a (CARD_FEATURE_DIM,) float32 array."""
@@ -96,6 +100,7 @@ class CardInfo:
                 self.name_idx / 8.0,
                 self.cost / 10.0,
                 float(self.is_spell),
+                float(self.is_in_hand),
                 float(self.is_affordable),
             ],
             dtype=np.float32,
@@ -167,13 +172,13 @@ class Observation:
     - ``troops``:  (MAX_TROOPS, TROOP_FEATURE_DIM) — positional-encoded entities
     - ``troop_mask``: (MAX_TROOPS,) bool — True where a real troop exists
     - ``scalars``: (SCALAR_DIM,) — feed-forward scalar features
-    - ``cards``:   (4, CARD_FEATURE_DIM) — hand cards (own only)
+    - ``cards``:   (DECK_SIZE, CARD_FEATURE_DIM) — all 8 deck cards
     """
 
     troops: np.ndarray           # (MAX_TROOPS, TROOP_FEATURE_DIM) float32
     troop_mask: np.ndarray       # (MAX_TROOPS,) bool
     scalars: np.ndarray          # (SCALAR_DIM,) float32
-    cards: np.ndarray            # (4, CARD_FEATURE_DIM) float32
+    cards: np.ndarray            # (DECK_SIZE, CARD_FEATURE_DIM) float32
     card_names: List[str] = field(default_factory=list)  # for debugging
 
     def to_dict(self) -> dict[str, np.ndarray]:

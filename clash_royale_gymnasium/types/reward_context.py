@@ -48,6 +48,12 @@ class RewardContext:
     action_valid: bool = True
     strategy: Strategy = Strategy.AGGRESSIVE
 
+    # ── Frame info ────────────────────────────────────────────────────────
+    is_action_frame: bool = True
+    """True on the sub-frame where the agent's action is applied (sub_frame 0).
+    False on subsequent frame-skip sub-frames.  Useful for event-driven
+    reward components that should only fire once per agent decision."""
+
     # ── Opponent towers destroyed this step ───────────────────────────────
     towers_destroyed_this_step: int = 0
     own_towers_lost_this_step: int = 0

@@ -38,7 +38,7 @@ from clash_royale_gymnasium.rewards.default import default_reward_function
 from clash_royale_gymnasium.types.actions import (
     ActionMask,
     HierarchicalAction,
-    N_CARDS,
+    N_DECK_SIZE,
     N_STRATEGIES,
     N_TILE_X,
     N_TILE_Y,
@@ -47,6 +47,7 @@ from clash_royale_gymnasium.types.actions import (
 )
 from clash_royale_gymnasium.types.observations import (
     CARD_FEATURE_DIM,
+    DECK_SIZE,
     MAX_TROOPS,
     SCALAR_DIM,
     TROOP_FEATURE_DIM,
@@ -64,7 +65,7 @@ class ClashRoyaleGymEnv(gym.Env):
     Key          Type         Description
     ============ ============ ===============================================
     ``strategy`` Discrete(3)  AGGRESSIVE / DEFENSIVE / FARMING
-    ``card``     Discrete(5)  Hand slot 0-3 or noop (4)
+    ``card``     Discrete(9)  Deck index 0-7 or noop (8)
     ``tile_x``   Discrete(18) Tile column
     ``tile_y``   Discrete(32) Tile row
     ============ ============ ===============================================
@@ -77,7 +78,7 @@ class ClashRoyaleGymEnv(gym.Env):
     ``troops``     (100, 14) float32   Entity features (padded)
     ``troop_mask`` (100,)    bool      True where a real troop exists
     ``scalars``    (16,)     float32   Elixir, tower HP, time, flags
-    ``cards``      (4, 4)    float32   Hand cards (own only)
+    ``cards``      (8, 5)    float32   Deck cards (all 8, with hand flag)
     ``action_mask``  Dict of bool arrays  Per-head validity masks
     ============== =================== ===================================
 
@@ -168,14 +169,18 @@ class ClashRoyaleGymEnv(gym.Env):
                 ),
                 "cards": spaces.Box(
                     low=0.0, high=1.0,
-                    shape=(4, CARD_FEATURE_DIM), dtype=np.float32,
+                    shape=(DECK_SIZE, CARD_FEATURE_DIM), dtype=np.float32,
                 ),
                 "action_mask": spaces.Dict(
                     {
                         "strategy": spaces.MultiBinary(N_STRATEGIES),
-                        "card": spaces.MultiBinary(N_CARDS + 1),
-                        "tile_x": spaces.MultiBinary(N_TILE_X),
-                        "tile_y": spaces.MultiBinary(N_TILE_Y),
+                        "card": spaces.MultiBinary(N_DECK_SIZE + 1),
+                        "tile_x_per_card": spaces.MultiBinary(
+                            [N_DECK_SIZE + 1, N_TILE_X]
+                        ),
+                        "tile_y_per_card": spaces.MultiBinary(
+                            [N_DECK_SIZE + 1, N_TILE_Y]
+                        ),
                     }
                 ),
             }
@@ -198,8 +203,12 @@ class ClashRoyaleGymEnv(gym.Env):
         options: Optional[Dict[str, Any]] = None,
     ) -> Tuple[Dict[str, Any], Dict[str, Any]]:
         super().reset(seed=seed)
+        # Increment seed each episode for deck-shuffle variety
         if seed is not None:
             self.engine.seed = seed
+        else:
+            self._episode_seed = getattr(self, "_episode_seed", 0) + 1
+            self.engine.seed = self._episode_seed
 
         self.engine.reset()
         self._reward_fn.reset()
@@ -237,7 +246,10 @@ class ClashRoyaleGymEnv(gym.Env):
         )
 
         action_valid = True
-        engine_action = h_action.to_engine_action()
+        state_pre = self.engine.get_state(self._player_id)
+        deck = state_pre.deck if state_pre.deck else self._deck
+        hand_names = [c.name for c in state_pre.cards]
+        engine_action = h_action.to_engine_action(deck=deck, hand=hand_names)
 
         if not valid:
             # Masked invalid → treat as noop + flag
@@ -268,7 +280,10 @@ class ClashRoyaleGymEnv(gym.Env):
                     action_valid = False
 
             # Compute reward for this sub-frame
-            ctx = self._build_reward_context(state_p0, h_action, action_valid, done)
+            ctx = self._build_reward_context(
+                state_p0, h_action, action_valid, done,
+                is_action_frame=(sub_frame == 0),
+            )
             sub_reward = self._reward_fn(ctx)
             sub_bd = self._reward_fn.breakdown(ctx)
             cumulative_reward += sub_reward
@@ -327,6 +342,8 @@ class ClashRoyaleGymEnv(gym.Env):
         action: HierarchicalAction,
         action_valid: bool,
         done: bool,
+        *,
+        is_action_frame: bool = True,
     ) -> RewardContext:
         pid = self._player_id
         damage_dealt = self.engine.get_tower_damage_per_tower(pid)
@@ -363,6 +380,7 @@ class ClashRoyaleGymEnv(gym.Env):
             action=action,
             action_valid=action_valid,
             strategy=action.strategy,
+            is_action_frame=is_action_frame,
             towers_destroyed_this_step=max(0, towers_destroyed_step),
             own_towers_lost_this_step=max(0, own_lost_step),
             prev_towers_destroyed=self._prev_towers_destroyed,
