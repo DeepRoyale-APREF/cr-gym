@@ -1,24 +1,14 @@
-"""Action types — hierarchical actions and masking for AlphaStar-like models."""
+"""Action types — hierarchical actions and masking."""
 
 from __future__ import annotations
 
 from dataclasses import dataclass
-from enum import IntEnum
 
 import numpy as np
 
 from clash_royale_engine.utils.constants import N_HEIGHT_TILES, N_WIDE_TILES
 
 
-class Strategy(IntEnum):
-    """High-level strategic intent (first head of the hierarchical policy)."""
-
-    AGGRESSIVE = 0
-    DEFENSIVE = 1
-    FARMING = 2
-
-
-N_STRATEGIES: int = len(Strategy)
 N_HAND_SIZE: int = 4
 N_DECK_SIZE: int = 8
 # Legacy alias kept for backwards compatibility
@@ -32,7 +22,7 @@ NOOP_IDX: int = N_DECK_SIZE  # card_idx=8 means "do nothing"
 class HierarchicalAction:
     """Output of the hierarchical policy heads.
 
-    Head order: strategy → card (including noop) → tile_x → tile_y.
+    Head order: card (including noop) → tile_x → tile_y.
 
     ``card_idx`` is a **deck index** (0-7) identifying the card by its
     position in the fixed 8-card deck, **not** a hand-slot index.  This
@@ -40,7 +30,6 @@ class HierarchicalAction:
     rotation.  Index 8 = noop.
     """
 
-    strategy: Strategy
     card_idx: int     # 0-7 = deck card, 8 = noop
     tile_x: int       # 0-17
     tile_y: int       # 0-31
@@ -82,7 +71,6 @@ class ActionMask:
     All masks are ``True`` where the action is **valid**.
     """
 
-    strategy: np.ndarray      # (N_STRATEGIES,) bool — always all-True
     card: np.ndarray          # (N_DECK_SIZE + 1,) bool — 0-7 deck cards + noop
     tile_x_per_card: np.ndarray  # (N_DECK_SIZE + 1, N_TILE_X) bool
     tile_y_per_card: np.ndarray  # (N_DECK_SIZE + 1, N_TILE_Y) bool
@@ -90,7 +78,6 @@ class ActionMask:
     def to_dict(self) -> dict[str, np.ndarray]:
         """Flat dict for ``gymnasium.spaces.Dict``."""
         return {
-            "strategy": self.strategy,
             "card": self.card,
             "tile_x_per_card": self.tile_x_per_card,
             "tile_y_per_card": self.tile_y_per_card,

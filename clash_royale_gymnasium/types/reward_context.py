@@ -5,7 +5,7 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 from typing import Optional
 
-from clash_royale_gymnasium.types.actions import HierarchicalAction, Strategy
+from clash_royale_gymnasium.types.actions import HierarchicalAction
 
 
 @dataclass(slots=True)
@@ -46,7 +46,6 @@ class RewardContext:
     # ── Action ────────────────────────────────────────────────────────────
     action: Optional[HierarchicalAction] = None
     action_valid: bool = True
-    strategy: Strategy = Strategy.AGGRESSIVE
 
     # ── Frame info ────────────────────────────────────────────────────────
     is_action_frame: bool = True

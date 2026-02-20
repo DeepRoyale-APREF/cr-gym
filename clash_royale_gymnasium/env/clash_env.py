@@ -1,8 +1,8 @@
 """Gymnasium environment for Clash Royale — dict observations, hierarchical actions.
 
-Designed for AlphaStar-style training:
+Designed for RL training:
 - **Observation**: partial (fog-of-war) ``Dict`` with entity list, scalars, cards.
-- **Action**: hierarchical ``Dict`` (strategy → card → tile_x → tile_y) with masks.
+- **Action**: hierarchical ``Dict`` (card → tile_x → tile_y) with masks.
 - **Reward**: customisable via :class:`RewardFunction` callback.
 - **Opponent**: any :class:`PlayerInterface` (heuristic bot, another agent, etc.).
 """
@@ -39,11 +39,9 @@ from clash_royale_gymnasium.types.actions import (
     ActionMask,
     HierarchicalAction,
     N_DECK_SIZE,
-    N_STRATEGIES,
     N_TILE_X,
     N_TILE_Y,
     NOOP_IDX,
-    Strategy,
 )
 from clash_royale_gymnasium.types.observations import (
     CARD_FEATURE_DIM,
@@ -64,7 +62,6 @@ class ClashRoyaleGymEnv(gym.Env):
     ============ ============ ===============================================
     Key          Type         Description
     ============ ============ ===============================================
-    ``strategy`` Discrete(3)  AGGRESSIVE / DEFENSIVE / FARMING
     ``card``     Discrete(9)  Deck index 0-7 or noop (8)
     ``tile_x``   Discrete(18) Tile column
     ``tile_y``   Discrete(32) Tile row
@@ -103,8 +100,14 @@ class ClashRoyaleGymEnv(gym.Env):
         Number of engine frames per ``step()`` call.  The RL action is
         applied on the **first** frame; subsequent frames advance with
         noop while the opponent keeps acting normally.  Rewards are
-        **accumulated** across all skipped frames.  Default ``1`` (no
-        skip).  Set to ``3`` for ~10 decisions/second at 30 fps.
+        **accumulated** across all skipped frames.  Default ``30``
+        (≈1 decision/second at 30 fps, ~180 RL steps per match).
+    speed_multiplier : float
+        Number of physics ticks to run per frame-skip tick.  Compounds
+        with ``frame_skip``: total ticks per RL step =
+        ``frame_skip × speed_multiplier``.  Use ``1.0`` (default) for
+        normal physics; ``2.0`` runs the engine at 2× game-time speed
+        between decisions (troops move faster, elixir fills faster).
     seed : int
         Random seed.
     """
@@ -129,6 +132,9 @@ class ClashRoyaleGymEnv(gym.Env):
         self.render_mode = render_mode
         self._player_id = 0
         self._frame_skip = max(1, frame_skip)
+        # How many raw physics ticks to run per frame-skip tick.
+        # Compounds with frame_skip for total ticks per RL step.
+        self._speed_ticks = max(1, int(speed_multiplier))
 
         # Reward
         self._reward_fn = reward_fn or default_reward_function()
@@ -173,7 +179,6 @@ class ClashRoyaleGymEnv(gym.Env):
                 ),
                 "action_mask": spaces.Dict(
                     {
-                        "strategy": spaces.MultiBinary(N_STRATEGIES),
                         "card": spaces.MultiBinary(N_DECK_SIZE + 1),
                         "tile_x_per_card": spaces.MultiBinary(
                             [N_DECK_SIZE + 1, N_TILE_X]
@@ -231,7 +236,6 @@ class ClashRoyaleGymEnv(gym.Env):
 
         # ── Decode hierarchical action ────────────────────────────────────
         h_action = HierarchicalAction(
-            strategy=Strategy(action["strategy"]),
             card_idx=action["card"],
             tile_x=action["tile_x"],
             tile_y=action["tile_y"],
@@ -256,11 +260,15 @@ class ClashRoyaleGymEnv(gym.Env):
             engine_action = None
             action_valid = False
 
-        # ── Step engine (with frame skipping) ─────────────────────────────
+        # ── Step engine (with frame skipping + speed ticks) ─────────────
         #
-        # Frame 1: apply the RL agent's action + opponent acts.
-        # Frames 2..frame_skip: RL agent does noop, opponent keeps acting.
-        # Rewards accumulate across all sub-frames.
+        # Outer loop  (frame_skip iterations): one reward measurement each.
+        #   sub_frame 0: apply the RL agent's card action on the FIRST physics tick.
+        #   sub_frame 1+: RL agent does noop every tick.
+        # Inner loop (speed_ticks per sub_frame): runs extra physics ticks
+        #   between decisions so the simulation advances faster than real-time.
+        #   The opponent's PlayerInterface get_action() is called every tick.
+        # Rewards are accumulated at sub_frame granularity (outer loop).
         #
         cumulative_reward = 0.0
         cumulative_breakdown: Dict[str, float] = {}
@@ -268,16 +276,22 @@ class ClashRoyaleGymEnv(gym.Env):
 
         for sub_frame in range(self._frame_skip):
             frame_action = engine_action if sub_frame == 0 else None
-            try:
-                state_p0, _, done = self.engine.step_with_action(
-                    player_id=self._player_id, action=frame_action,
-                )
-            except InvalidActionError:
-                state_p0, _, done = self.engine.step_with_action(
-                    player_id=self._player_id, action=None,
-                )
-                if sub_frame == 0:
-                    action_valid = False
+
+            # Inner physics-tick loop driven by speed_multiplier
+            for tick in range(self._speed_ticks):
+                tick_action = frame_action if tick == 0 else None
+                try:
+                    state_p0, _, done = self.engine.step_with_action(
+                        player_id=self._player_id, action=tick_action,
+                    )
+                except InvalidActionError:
+                    state_p0, _, done = self.engine.step_with_action(
+                        player_id=self._player_id, action=None,
+                    )
+                    if sub_frame == 0 and tick == 0:
+                        action_valid = False
+                if done:
+                    break
 
             # Compute reward for this sub-frame
             ctx = self._build_reward_context(
@@ -379,7 +393,6 @@ class ClashRoyaleGymEnv(gym.Env):
             player_id=pid,
             action=action,
             action_valid=action_valid,
-            strategy=action.strategy,
             is_action_frame=is_action_frame,
             towers_destroyed_this_step=max(0, towers_destroyed_step),
             own_towers_lost_this_step=max(0, own_lost_step),

@@ -18,7 +18,7 @@ from clash_royale_gymnasium.league.tournament import LeagueTournament
 from clash_royale_gymnasium.reporting.tracker import TrainingTracker
 from clash_royale_gymnasium.rewards.base import RewardComponent, RewardFunction
 from clash_royale_gymnasium.rewards.default import default_reward_function
-from clash_royale_gymnasium.types.actions import ActionMask, HierarchicalAction, Strategy
+from clash_royale_gymnasium.types.actions import ActionMask, HierarchicalAction
 from clash_royale_gymnasium.types.observations import Observation
 from clash_royale_gymnasium.types.reward_context import RewardContext
 
@@ -35,7 +35,6 @@ __all__ = [
     # Actions
     "ActionMask",
     "HierarchicalAction",
-    "Strategy",
     # Observation
     "Observation",
     # League

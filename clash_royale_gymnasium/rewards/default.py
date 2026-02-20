@@ -11,13 +11,12 @@ from clash_royale_gymnasium.rewards.components import (
 
 
 def default_reward_function(
-    damage_weight: float = 1.0,
-    elixir_weight: float = 0.3,
-    terminal_weight: float = 1.0,
-    princess_reward: float = 10.0,
-    win_reward: float = 20.0,
-    leak_sensitivity: float = 0.5,
-    spend_bonus: float = 0.1,
+    damage_weight=5.0,
+    elixir_weight=0.2,
+    terminal_weight=0.5,
+    princess_reward=5.0,
+    win_reward=10.0,
+    leak_sensitivity=0.5,
 ) -> RewardFunction:
     """Create the default reward function with tuneable weights.
 
@@ -26,7 +25,7 @@ def default_reward_function(
     damage_weight : float
         Weight for tower-damage component.
     elixir_weight : float
-        Weight for elixir-efficiency component (event-driven).
+        Weight for elixir-efficiency component.
     terminal_weight : float
         Weight for princess-destroy and win/loss rewards.
     princess_reward : float
@@ -35,8 +34,6 @@ def default_reward_function(
         Reward for winning the match.
     leak_sensitivity : float
         How aggressively leaked elixir is penalised (0.1=gentle, 2.0=harsh).
-    spend_bonus : float
-        Small positive reward when the agent plays a card (anti-hoarding).
     """
     return RewardFunction(
         [
@@ -44,7 +41,6 @@ def default_reward_function(
             ElixirComponent(
                 weight=elixir_weight,
                 leak_sensitivity=leak_sensitivity,
-                spend_bonus=spend_bonus,
             ),
             TerminalComponent(
                 weight=terminal_weight,

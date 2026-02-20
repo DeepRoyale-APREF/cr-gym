@@ -3,9 +3,8 @@
 Masks enforce **only valid actions** so the policy never proposes an
 illegal placement.  The hierarchical heads are masked autoregressively:
 
-1. **strategy** — always all-valid (the agent can choose any intent).
-2. **card** — deck cards that are in hand AND affordable, + noop.
-3. **tile_x / tile_y per card** — per-card placement masks so the model
+1. **card** — deck cards that are in hand AND affordable, + noop.
+2. **tile_x / tile_y per card** — per-card placement masks so the model
    learns card-specific tile rules (spells -> anywhere, troops -> own side
    + pocket if unlocked).
 """
@@ -32,11 +31,9 @@ from clash_royale_gymnasium.types.actions import (
     HierarchicalAction,
     N_DECK_SIZE,
     N_HAND_SIZE,
-    N_STRATEGIES,
     N_TILE_X,
     N_TILE_Y,
     NOOP_IDX,
-    Strategy,
 )
 
 
@@ -88,8 +85,6 @@ def compute_action_mask(
     enemy_left_princess_dead, enemy_right_princess_dead : bool
         Whether opponent princess towers have been destroyed (enables pocket).
     """
-    strategy_mask = np.ones(N_STRATEGIES, dtype=bool)
-
     n_options = N_DECK_SIZE + 1  # 8 deck + 1 noop
     card_mask = np.zeros(n_options, dtype=bool)
     card_mask[NOOP_IDX] = True
@@ -126,7 +121,6 @@ def compute_action_mask(
     tile_y_per_card[NOOP_IDX, :] = True
 
     return ActionMask(
-        strategy=strategy_mask,
         card=card_mask,
         tile_x_per_card=tile_x_per_card,
         tile_y_per_card=tile_y_per_card,

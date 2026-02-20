@@ -18,7 +18,6 @@ from clash_royale_gymnasium.rewards.base import RewardComponent, RewardFunction
 from clash_royale_gymnasium.rewards.components import (
     DamageComponent,
     ElixirComponent,
-    StrategyComponent,
     TerminalComponent,
 )
 from clash_royale_gymnasium.rewards.default import default_reward_function
@@ -27,11 +26,9 @@ from clash_royale_gymnasium.types.actions import (
     HierarchicalAction,
     N_CARDS,
     N_DECK_SIZE,
-    N_STRATEGIES,
     N_TILE_X,
     N_TILE_Y,
     NOOP_IDX,
-    Strategy,
 )
 from clash_royale_gymnasium.types.observations import (
     CARD_FEATURE_DIM,
@@ -130,30 +127,23 @@ class TestActionTypes:
 
     def test_noop_action(self) -> None:
         a = HierarchicalAction(
-            strategy=Strategy.FARMING, card_idx=NOOP_IDX, tile_x=0, tile_y=0,
+            card_idx=NOOP_IDX, tile_x=0, tile_y=0,
         )
         assert a.is_noop
         assert a.to_engine_action() is None
 
     def test_play_action(self) -> None:
         a = HierarchicalAction(
-            strategy=Strategy.AGGRESSIVE, card_idx=2, tile_x=9, tile_y=5,
+            card_idx=2, tile_x=9, tile_y=5,
         )
         assert not a.is_noop
         assert a.to_engine_action() == (9, 5, 2)
 
-    def test_strategy_values(self) -> None:
-        assert Strategy.AGGRESSIVE == 0
-        assert Strategy.DEFENSIVE == 1
-        assert Strategy.FARMING == 2
-
     def test_action_space_structure(self) -> None:
         space = build_action_space()
-        assert "strategy" in space.spaces
         assert "card" in space.spaces
         assert "tile_x" in space.spaces
         assert "tile_y" in space.spaces
-        assert space["strategy"].n == N_STRATEGIES
         assert space["card"].n == N_DECK_SIZE + 1  # +1 noop
         assert space["tile_x"].n == N_TILE_X
         assert space["tile_y"].n == N_TILE_Y
@@ -165,13 +155,11 @@ class TestActionMaskShape:
     def test_mask_to_dict_keys(self) -> None:
         n_options = N_DECK_SIZE + 1
         mask = ActionMask(
-            strategy=np.ones(N_STRATEGIES, dtype=bool),
             card=np.ones(n_options, dtype=bool),
             tile_x_per_card=np.ones((n_options, N_TILE_X), dtype=bool),
             tile_y_per_card=np.ones((n_options, N_TILE_Y), dtype=bool),
         )
         d = mask.to_dict()
-        assert d["strategy"].shape == (N_STRATEGIES,)
         assert d["card"].shape == (n_options,)
         assert d["tile_x_per_card"].shape == (n_options, N_TILE_X)
         assert d["tile_y_per_card"].shape == (n_options, N_TILE_Y)
@@ -199,7 +187,6 @@ class TestRewardComponents:
             game_done=False,
             winner=None,
             player_id=0,
-            strategy=Strategy.AGGRESSIVE,
         )
 
     def test_damage_component_zero_when_no_damage(self) -> None:
@@ -268,14 +255,6 @@ class TestRewardComponents:
         ctx.prev_leaked_elixir = 0.0
         reward = comp.compute(ctx)
         assert reward < -0.1  # should be penalised
-
-    def test_strategy_component_aggressive(self) -> None:
-        comp = StrategyComponent(weight=1.0, aggressive_bonus=0.5)
-        ctx = self._base_ctx()
-        ctx.strategy = Strategy.AGGRESSIVE
-        ctx.damage_dealt["left_princess"] = 200.0
-        reward = comp.compute(ctx)
-        assert reward > 0
 
     def test_composite_reward_function(self) -> None:
         rf = default_reward_function()
@@ -349,7 +328,6 @@ class TestEnvironment:
         obs, _ = env.reset()
         am = obs["action_mask"]
         n_options = N_DECK_SIZE + 1
-        assert am["strategy"].shape == (N_STRATEGIES,)
         assert am["card"].shape == (n_options,)
         assert am["tile_x_per_card"].shape == (n_options, N_TILE_X)
         assert am["tile_y_per_card"].shape == (n_options, N_TILE_Y)
@@ -360,7 +338,7 @@ class TestEnvironment:
 
     def test_step_with_noop(self, env: ClashRoyaleGymEnv) -> None:
         env.reset()
-        action = {"strategy": 0, "card": NOOP_IDX, "tile_x": 0, "tile_y": 0}
+        action = {"card": NOOP_IDX, "tile_x": 0, "tile_y": 0}
         obs, reward, terminated, truncated, info = env.step(action)
         assert isinstance(obs, dict)
         assert isinstance(reward, float)
@@ -375,7 +353,7 @@ class TestEnvironment:
         playable = [i for i in range(N_DECK_SIZE) if card_mask[i]]
         if playable:
             card_idx = playable[0]
-            action = {"strategy": 0, "card": card_idx, "tile_x": 9, "tile_y": 5}
+            action = {"card": card_idx, "tile_x": 9, "tile_y": 5}
             obs2, reward, terminated, truncated, info = env.step(action)
             assert isinstance(obs2, dict)
 
@@ -384,7 +362,7 @@ class TestEnvironment:
         done = False
         steps = 0
         while not done and steps < 20000:
-            action = {"strategy": 0, "card": NOOP_IDX, "tile_x": 0, "tile_y": 0}
+            action = {"card": NOOP_IDX, "tile_x": 0, "tile_y": 0}
             _, _, terminated, truncated, _ = env.step(action)
             done = terminated or truncated
             steps += 1
@@ -394,7 +372,7 @@ class TestEnvironment:
         env.reset()
         # Run a few steps
         for _ in range(10):
-            env.step({"strategy": 0, "card": NOOP_IDX, "tile_x": 0, "tile_y": 0})
+            env.step({"card": NOOP_IDX, "tile_x": 0, "tile_y": 0})
         stats = env.episode_stats
         assert "total_reward" in stats
         assert "n_actions" in stats
@@ -410,7 +388,6 @@ class TestEnvironment:
         """Verify that the action space can be sampled."""
         env.reset()
         action = env.action_space.sample()
-        assert "strategy" in action
         assert "card" in action
 
 

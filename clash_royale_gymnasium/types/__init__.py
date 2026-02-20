@@ -3,7 +3,6 @@
 from clash_royale_gymnasium.types.actions import (
     ActionMask,
     HierarchicalAction,
-    Strategy,
 )
 from clash_royale_gymnasium.types.observations import (
     CardInfo,
@@ -20,6 +19,5 @@ __all__ = [
     "Observation",
     "RewardContext",
     "ScalarFeatures",
-    "Strategy",
     "TroopInfo",
 ]

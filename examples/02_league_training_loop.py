@@ -42,13 +42,11 @@ def sample_masked_action(obs: dict) -> dict[str, int]:
     mask = obs["action_mask"]
     rng = np.random.default_rng()
 
-    strategy_mask = np.asarray(mask["strategy"], dtype=bool)
     card_mask = np.asarray(mask["card"], dtype=bool)
     tile_x_mask = np.asarray(mask["tile_x"], dtype=bool)
     tile_y_mask = np.asarray(mask["tile_y"], dtype=bool)
 
     return {
-        "strategy": int(rng.choice(np.where(strategy_mask)[0])),
         "card": int(rng.choice(np.where(card_mask)[0])),
         "tile_x": int(rng.choice(np.where(tile_x_mask)[0])),
         "tile_y": int(rng.choice(np.where(tile_y_mask)[0])),
