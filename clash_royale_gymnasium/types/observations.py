@@ -37,6 +37,18 @@ DECK_SIZE: int = 8
 CARD_FEATURE_DIM: int = 5
 """Per-card feature: [name_idx, cost, is_spell, is_in_hand, is_affordable]."""
 
+ARENA_MAP_CHANNELS: int = 8
+"""Spatial arena map channels:
+0: ally_tower_hp, 1: enemy_tower_hp,
+2: ally_troop_hp, 3: ally_troop_damage, 4: ally_troop_elixir,
+5: enemy_troop_hp, 6: enemy_troop_damage, 7: enemy_troop_elixir."""
+
+ARENA_H: int = 32
+"""Arena height in tiles (same as N_HEIGHT_TILES)."""
+
+ARENA_W: int = 18
+"""Arena width in tiles (same as N_WIDE_TILES)."""
+
 
 # ── Dataclasses ───────────────────────────────────────────────────────────────
 
@@ -179,6 +191,7 @@ class Observation:
     troop_mask: np.ndarray       # (MAX_TROOPS,) bool
     scalars: np.ndarray          # (SCALAR_DIM,) float32
     cards: np.ndarray            # (DECK_SIZE, CARD_FEATURE_DIM) float32
+    arena_map: np.ndarray        # (ARENA_MAP_CHANNELS, ARENA_H, ARENA_W) float32
     card_names: List[str] = field(default_factory=list)  # for debugging
 
     def to_dict(self) -> dict[str, np.ndarray]:
@@ -188,4 +201,5 @@ class Observation:
             "troop_mask": self.troop_mask,
             "scalars": self.scalars,
             "cards": self.cards,
+            "arena_map": self.arena_map,
         }

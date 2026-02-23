@@ -39,11 +39,15 @@ from clash_royale_gymnasium.types.actions import (
     ActionMask,
     HierarchicalAction,
     N_DECK_SIZE,
+    N_POSITION,
     N_TILE_X,
     N_TILE_Y,
     NOOP_IDX,
 )
 from clash_royale_gymnasium.types.observations import (
+    ARENA_H,
+    ARENA_MAP_CHANNELS,
+    ARENA_W,
     CARD_FEATURE_DIM,
     DECK_SIZE,
     MAX_TROOPS,
@@ -177,6 +181,11 @@ class ClashRoyaleGymEnv(gym.Env):
                     low=0.0, high=1.0,
                     shape=(DECK_SIZE, CARD_FEATURE_DIM), dtype=np.float32,
                 ),
+                "arena_map": spaces.Box(
+                    low=0.0, high=10.0,
+                    shape=(ARENA_MAP_CHANNELS, ARENA_H, ARENA_W),
+                    dtype=np.float32,
+                ),
                 "action_mask": spaces.Dict(
                     {
                         "card": spaces.MultiBinary(N_DECK_SIZE + 1),
@@ -185,6 +194,9 @@ class ClashRoyaleGymEnv(gym.Env):
                         ),
                         "tile_y_per_card": spaces.MultiBinary(
                             [N_DECK_SIZE + 1, N_TILE_Y]
+                        ),
+                        "spatial_per_card": spaces.MultiBinary(
+                            [N_DECK_SIZE + 1, N_POSITION]
                         ),
                     }
                 ),

@@ -31,6 +31,7 @@ from clash_royale_gymnasium.types.actions import (
     HierarchicalAction,
     N_DECK_SIZE,
     N_HAND_SIZE,
+    N_POSITION,
     N_TILE_X,
     N_TILE_Y,
     NOOP_IDX,
@@ -120,10 +121,22 @@ def compute_action_mask(
     tile_x_per_card[NOOP_IDX, :] = True
     tile_y_per_card[NOOP_IDX, :] = True
 
+    # Build 2D spatial mask per card: outer product of tile_x × tile_y
+    # spatial_per_card[card, y * N_TILE_X + x] = tile_y[card, y] AND tile_x[card, x]
+    spatial_per_card = np.zeros((n_options, N_POSITION), dtype=bool)
+    for card_idx in range(n_options):
+        # Outer product: (N_TILE_Y, 1) & (1, N_TILE_X) → (N_TILE_Y, N_TILE_X)
+        spatial_2d = (
+            tile_y_per_card[card_idx, :, np.newaxis]
+            & tile_x_per_card[card_idx, np.newaxis, :]
+        )  # (N_TILE_Y, N_TILE_X)
+        spatial_per_card[card_idx] = spatial_2d.reshape(-1)
+
     return ActionMask(
         card=card_mask,
         tile_x_per_card=tile_x_per_card,
         tile_y_per_card=tile_y_per_card,
+        spatial_per_card=spatial_per_card,
     )
 
 

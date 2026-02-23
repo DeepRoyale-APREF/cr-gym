@@ -18,6 +18,9 @@ from clash_royale_engine.core.state import State, UnitDetection
 from clash_royale_engine.utils.constants import CARD_STATS, CARD_VOCAB
 
 from clash_royale_gymnasium.types.observations import (
+    ARENA_H,
+    ARENA_MAP_CHANNELS,
+    ARENA_W,
     CARD_FEATURE_DIM,
     DECK_SIZE,
     MAX_TROOPS,
@@ -101,6 +104,12 @@ def encode_observation(
         troops[i] = ti.to_array()
         troop_mask[i] = True
 
+    # ── Arena spatial map (C, H, W) ──────────────────────────────────────
+    # Channels: 0=ally_tower_hp, 1=enemy_tower_hp,
+    #   2=ally_troop_hp, 3=ally_troop_damage, 4=ally_troop_elixir,
+    #   5=enemy_troop_hp, 6=enemy_troop_damage, 7=enemy_troop_elixir
+    arena_map = _build_arena_map(state)
+
     # ── Scalars (no enemy elixir — fog-of-war) ───────────────────────────
     total_frames = engine.scheduler.game_duration * engine.fps
     frame_ratio = engine.current_frame / max(total_frames, 1) if total_frames > 0 else 0.0
@@ -155,5 +164,115 @@ def encode_observation(
         troop_mask=troop_mask,
         scalars=scalars.to_array(),
         cards=cards_arr,
+        arena_map=arena_map,
         card_names=card_names,
     )
+
+
+# ── Arena spatial map builder ─────────────────────────────────────────────────
+
+# Tower positions (tile_x, tile_y) for player 0's perspective
+# Player 0 (ally) towers are at the bottom, player 1 (enemy) at the top.
+_ALLY_TOWER_POSITIONS = {
+    "left_princess": (3, 3),
+    "right_princess": (14, 3),
+    "king": (8, 0),
+}
+_ENEMY_TOWER_POSITIONS = {
+    "left_princess": (3, 28),
+    "right_princess": (14, 28),
+    "king": (8, 31),
+}
+
+# Princess tower max HP / King tower max HP for normalisation
+_PRINCESS_MAX_HP = 3052.0
+_KING_MAX_HP = 4824.0
+
+
+def _build_arena_map(state: State) -> np.ndarray:
+    """Build the (C, H, W) spatial arena map from engine state.
+
+    Channels
+    --------
+    0 : ally_tower_hp       — normalised HP of ally towers at their tile positions
+    1 : enemy_tower_hp      — normalised HP of enemy towers at their tile positions
+    2 : ally_troop_hp       — HP ratio of ally troops (accumulated per tile)
+    3 : ally_troop_damage   — normalised damage of ally troops at their positions
+    4 : ally_troop_elixir   — normalised elixir cost of ally troops at their positions
+    5 : enemy_troop_hp      — HP ratio of enemy troops (accumulated per tile)
+    6 : enemy_troop_damage  — normalised damage of enemy troops at their positions
+    7 : enemy_troop_elixir  — normalised elixir cost of enemy troops at their positions
+
+    Parameters
+    ----------
+    state : State
+        Player-perspective game state.
+
+    Returns
+    -------
+    np.ndarray
+        Shape ``(ARENA_MAP_CHANNELS, ARENA_H, ARENA_W)`` float32.
+    """
+    arena = np.zeros((ARENA_MAP_CHANNELS, ARENA_H, ARENA_W), dtype=np.float32)
+    n = state.numbers
+
+    # ── Ally towers (channel 0) ───────────────────────────────────────────
+    _place_tower(arena, 0, _ALLY_TOWER_POSITIONS["left_princess"],
+                 n.left_princess_hp, _PRINCESS_MAX_HP)
+    _place_tower(arena, 0, _ALLY_TOWER_POSITIONS["right_princess"],
+                 n.right_princess_hp, _PRINCESS_MAX_HP)
+    _place_tower(arena, 0, _ALLY_TOWER_POSITIONS["king"],
+                 n.king_hp, _KING_MAX_HP)
+
+    # ── Enemy towers (channel 1) ─────────────────────────────────────────
+    _place_tower(arena, 1, _ENEMY_TOWER_POSITIONS["left_princess"],
+                 n.left_enemy_princess_hp, _PRINCESS_MAX_HP)
+    _place_tower(arena, 1, _ENEMY_TOWER_POSITIONS["right_princess"],
+                 n.right_enemy_princess_hp, _PRINCESS_MAX_HP)
+    _place_tower(arena, 1, _ENEMY_TOWER_POSITIONS["king"],
+                 n.enemy_king_hp, _KING_MAX_HP)
+
+    # ── Ally troops (channels 2, 3, 4) ────────────────────────────────────
+    for det in state.allies:
+        _place_troop(arena, det, ally_offset=2)
+
+    # ── Enemy troops (channels 5, 6, 7) ──────────────────────────────────
+    for det in state.enemies:
+        _place_troop(arena, det, ally_offset=5)
+
+    return arena
+
+
+def _place_tower(
+    arena: np.ndarray,
+    channel: int,
+    pos: tuple[int, int],
+    hp: float,
+    max_hp: float,
+) -> None:
+    """Place normalised tower HP at a tile position."""
+    x, y = pos
+    if 0 <= x < ARENA_W and 0 <= y < ARENA_H and max_hp > 0:
+        arena[channel, y, x] = max(hp, 0.0) / max_hp
+
+
+def _place_troop(
+    arena: np.ndarray,
+    det: UnitDetection,
+    ally_offset: int,
+) -> None:
+    """Accumulate troop stats at its tile position.
+
+    ally_offset=2 for ally channels {2,3,4}, ally_offset=5 for enemy {5,6,7}.
+    """
+    tx = int(round(det.position.tile_x))
+    ty = int(round(det.position.tile_y))
+    if not (0 <= tx < ARENA_W and 0 <= ty < ARENA_H):
+        return
+
+    stats = CARD_STATS.get(det.unit.name, {})
+    hp_ratio = det.hp / max(det.max_hp, 1)
+
+    arena[ally_offset + 0, ty, tx] += hp_ratio                    # hp
+    arena[ally_offset + 1, ty, tx] += stats.get("damage", 0) / 400.0  # damage
+    arena[ally_offset + 2, ty, tx] += stats.get("elixir", 0) / 10.0   # elixir

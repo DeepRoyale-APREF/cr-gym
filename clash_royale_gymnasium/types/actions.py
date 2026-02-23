@@ -15,6 +15,7 @@ N_DECK_SIZE: int = 8
 N_CARDS: int = N_HAND_SIZE
 N_TILE_X: int = N_WIDE_TILES   # 18
 N_TILE_Y: int = N_HEIGHT_TILES  # 32
+N_POSITION: int = N_TILE_X * N_TILE_Y  # 576 = 18 × 32
 NOOP_IDX: int = N_DECK_SIZE  # card_idx=8 means "do nothing"
 
 
@@ -74,6 +75,7 @@ class ActionMask:
     card: np.ndarray          # (N_DECK_SIZE + 1,) bool — 0-7 deck cards + noop
     tile_x_per_card: np.ndarray  # (N_DECK_SIZE + 1, N_TILE_X) bool
     tile_y_per_card: np.ndarray  # (N_DECK_SIZE + 1, N_TILE_Y) bool
+    spatial_per_card: np.ndarray  # (N_DECK_SIZE + 1, N_POSITION) bool — flat 2D mask
 
     def to_dict(self) -> dict[str, np.ndarray]:
         """Flat dict for ``gymnasium.spaces.Dict``."""
@@ -81,4 +83,5 @@ class ActionMask:
             "card": self.card,
             "tile_x_per_card": self.tile_x_per_card,
             "tile_y_per_card": self.tile_y_per_card,
+            "spatial_per_card": self.spatial_per_card,
         }
