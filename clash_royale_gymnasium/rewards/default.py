@@ -13,9 +13,9 @@ from clash_royale_gymnasium.rewards.components import (
 
 def default_reward_function(
     damage_weight=5.0,
-    defensive_weight=2.0,
+    defensive_weight=0.5,
     elixir_weight=0.2,
-    terminal_weight=0.5,
+    terminal_weight=1,
     princess_reward=5.0,
     win_reward=10.0,
     leak_sensitivity=0.5,

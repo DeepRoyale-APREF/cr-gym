@@ -126,7 +126,7 @@ class DefensiveComponent(RewardComponent):
     proactively defend rather than passively let towers take hits.
     """
 
-    def __init__(self, weight: float = 1.0, normaliser: float = 10.0) -> None:
+    def __init__(self, weight: float = 1.0, normaliser: float = 20.0) -> None:
         super().__init__(weight)
         self._normaliser = normaliser
 
