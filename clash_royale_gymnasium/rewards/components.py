@@ -37,21 +37,12 @@ class DamageComponent(RewardComponent):
 
 
 class ElixirComponent(RewardComponent):
-    """Elixir management reward with two signals.
+    """Elixir management reward — penalises leaked (wasted) elixir.
 
-    1. **Leaked elixir penalty** (every frame, when ``leaked_delta > 0``):
-       Penalises wasted elixir at the 10-cap.  Uses a sigmoid mapping
-       so small leaks cost little but large ones hurt.
-       ``-sigmoid_norm(leaked_delta)``
-
-    2. **Elixir efficiency signal** (only on the action-frame of a card play):
-       Measures how well the agent is investing elixir into the field
-       relative to its deck's average cost.
-
-       ``(mean_deck_cost - (current_elixir + troop_elixir_value)) / 10``
-
-       - Positive  → agent has room to invest more (low field value / high elixir).
-       - Negative  → agent has over-committed / lots of troops already deployed.
+    **Leaked elixir penalty** (every frame, when ``leaked_delta > 0``):
+    Penalises wasted elixir at the 10-cap.  Uses a sigmoid mapping
+    so small leaks cost little but large ones hurt.
+    ``-sigmoid_norm(leaked_delta)``
 
     Parameters
     ----------
@@ -70,21 +61,10 @@ class ElixirComponent(RewardComponent):
     def compute(self, ctx: RewardContext) -> float:
         reward = 0.0
 
-        # 1. Leaked elixir penalty — fires every frame when there is new leakage
+        # Leaked elixir penalty — fires every frame when there is new leakage
         leaked_delta = ctx.leaked_elixir - ctx.prev_leaked_elixir
         if leaked_delta > 0:
             reward -= self._sigmoid_norm(leaked_delta)
-
-        # 2. Elixir efficiency — fires only when the agent plays a valid card
-        if (
-            ctx.is_action_frame
-            and ctx.action is not None
-            and not ctx.action.is_noop
-            and ctx.action_valid
-        ):
-            reward += (
-                ctx.mean_deck_cost - (ctx.current_elixir + ctx.troop_elixir_value)
-            ) / 10.0
 
         return reward
 
@@ -129,3 +109,29 @@ class TerminalComponent(RewardComponent):
 
         return reward
 
+
+class DefensiveComponent(RewardComponent):
+    """Reward for eliminating enemy troops (defensive play).
+
+    Tracks the delta in opponent's alive troop elixir value between
+    frames.  When enemy troops die (value drops), the agent receives
+    a positive reward proportional to the elixir value destroyed.
+    This incentivises using spells and troops to defend against pushes.
+
+    ``reward = max(0, prev_enemy_value - current_enemy_value) / normaliser``
+
+    The signal fires whether the agent killed the troops directly
+    (spells, defensive troop combat) or indirectly (tower fire), but
+    combined with the damage component it teaches the agent to
+    proactively defend rather than passively let towers take hits.
+    """
+
+    def __init__(self, weight: float = 1.0, normaliser: float = 10.0) -> None:
+        super().__init__(weight)
+        self._normaliser = normaliser
+
+    def compute(self, ctx: RewardContext) -> float:
+        killed_value = ctx.prev_enemy_troop_elixir_value - ctx.enemy_troop_elixir_value
+        if killed_value > 0:
+            return killed_value / self._normaliser
+        return 0.0

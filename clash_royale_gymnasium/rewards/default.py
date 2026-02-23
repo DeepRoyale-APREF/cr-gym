@@ -5,6 +5,7 @@ from __future__ import annotations
 from clash_royale_gymnasium.rewards.base import RewardFunction
 from clash_royale_gymnasium.rewards.components import (
     DamageComponent,
+    DefensiveComponent,
     ElixirComponent,
     TerminalComponent,
 )
@@ -12,6 +13,7 @@ from clash_royale_gymnasium.rewards.components import (
 
 def default_reward_function(
     damage_weight=5.0,
+    defensive_weight=2.0,
     elixir_weight=0.2,
     terminal_weight=0.5,
     princess_reward=5.0,
@@ -24,8 +26,10 @@ def default_reward_function(
     ----------
     damage_weight : float
         Weight for tower-damage component.
+    defensive_weight : float
+        Weight for killing enemy troops (defensive play).
     elixir_weight : float
-        Weight for elixir-efficiency component.
+        Weight for leaked-elixir penalty.
     terminal_weight : float
         Weight for princess-destroy and win/loss rewards.
     princess_reward : float
@@ -38,6 +42,7 @@ def default_reward_function(
     return RewardFunction(
         [
             DamageComponent(weight=damage_weight),
+            DefensiveComponent(weight=defensive_weight),
             ElixirComponent(
                 weight=elixir_weight,
                 leak_sensitivity=leak_sensitivity,

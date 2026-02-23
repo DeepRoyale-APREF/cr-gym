@@ -207,6 +207,7 @@ class ClashRoyaleGymEnv(gym.Env):
         self._prev_towers_destroyed = 0
         self._prev_own_towers_alive = 3
         self._prev_leaked_elixir = 0.0
+        self._prev_enemy_troop_value = 0.0
         self._total_reward = 0.0
         self._n_actions = 0
         self._step_count = 0
@@ -232,6 +233,7 @@ class ClashRoyaleGymEnv(gym.Env):
         self._prev_towers_destroyed = 0
         self._prev_own_towers_alive = 3
         self._prev_leaked_elixir = 0.0
+        self._prev_enemy_troop_value = 0.0
         self._total_reward = 0.0
         self._n_actions = 0
         self._step_count = 0
@@ -325,6 +327,9 @@ class ClashRoyaleGymEnv(gym.Env):
             self._prev_leaked_elixir = self.engine.get_leaked_elixir(
                 self._player_id,
             )
+            self._prev_enemy_troop_value = self.engine.get_alive_troop_elixir_value(
+                1 - self._player_id,
+            )
 
             if done:
                 break
@@ -400,6 +405,10 @@ class ClashRoyaleGymEnv(gym.Env):
             leaked_elixir=self.engine.get_leaked_elixir(pid),
             prev_leaked_elixir=self._prev_leaked_elixir,
             mean_deck_cost=self._mean_deck_cost,
+            enemy_troop_elixir_value=self.engine.get_alive_troop_elixir_value(
+                1 - pid,
+            ),
+            prev_enemy_troop_elixir_value=self._prev_enemy_troop_value,
             game_done=done,
             winner=self.engine.get_winner(),
             player_id=pid,

@@ -38,6 +38,10 @@ class RewardContext:
     prev_leaked_elixir: float = 0.0
     mean_deck_cost: float = 0.0
 
+    # ── Troop value (for defensive reward) ────────────────────────────────
+    enemy_troop_elixir_value: float = 0.0
+    prev_enemy_troop_elixir_value: float = 0.0
+
     # ── Game state ────────────────────────────────────────────────────────
     game_done: bool = False
     winner: Optional[int] = None  # 0, 1, None (draw)
