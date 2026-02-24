@@ -405,6 +405,7 @@ class ClashRoyaleGymEnv(gym.Env):
             leaked_elixir=self.engine.get_leaked_elixir(pid),
             prev_leaked_elixir=self._prev_leaked_elixir,
             mean_deck_cost=self._mean_deck_cost,
+            played_card_cost=self._get_played_card_cost(action),
             enemy_troop_elixir_value=self.engine.get_alive_troop_elixir_value(
                 1 - pid,
             ),
@@ -456,6 +457,16 @@ class ClashRoyaleGymEnv(gym.Env):
             if self.engine.arena.tower_hp(pid, t) > 0:
                 alive += 1
         return alive
+
+    def _get_played_card_cost(self, action: HierarchicalAction) -> float:
+        """Return the elixir cost of the played card (0.0 if noop)."""
+        if action.is_noop:
+            return 0.0
+        idx = action.card_idx
+        if 0 <= idx < len(self._deck):
+            card_name = self._deck[idx]
+            return float(CARD_STATS.get(card_name, {}).get("elixir", 0))
+        return 0.0
 
     # ── Episode statistics (for league / reporting) ───────────────────────
 

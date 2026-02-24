@@ -2,8 +2,6 @@
 
 from __future__ import annotations
 
-import math
-
 from clash_royale_gymnasium.rewards.base import RewardComponent
 from clash_royale_gymnasium.types.reward_context import RewardContext
 
@@ -37,42 +35,58 @@ class DamageComponent(RewardComponent):
 
 
 class ElixirComponent(RewardComponent):
-    """Elixir management reward — penalises leaked (wasted) elixir.
+    """Elixir management reward — penalises impatient spending.
 
-    **Leaked elixir penalty** (every frame, when ``leaked_delta > 0``):
-    Penalises wasted elixir at the 10-cap.  Uses a sigmoid mapping
-    so small leaks cost little but large ones hurt.
-    ``-sigmoid_norm(leaked_delta)``
+    Fires once per action frame when a card is played (not noop).
+    The reward depends on how much elixir the agent had *before*
+    playing the card, relative to a comfortable threshold:
+
+    - Playing at high elixir (≥ ``comfort_threshold``) → small positive
+      reward: the agent is spending surplus wisely.
+    - Playing at low elixir (just barely enough) → penalty: the agent
+      is spending the instant it can afford anything.
+
+    Formula::
+
+        signal = (current_elixir - comfort_threshold) / 10.0
+
+    At ``comfort_threshold=7``:
+
+    ========  =======  ===========
+    Elixir    Signal   Meaning
+    ========  =======  ===========
+     10        +0.30   great — spending surplus
+      8        +0.10   fine — comfortable
+      7         0.00   neutral
+      5        −0.20   bad — spending while poor
+      3        −0.40   very bad — desperate play
+    ========  =======  ===========
+
+    This teaches the agent to **save up** before deploying, which
+    naturally leads to building proper pushes (Giant + support) rather
+    than instantly dropping the cheapest troop available.  It does NOT
+    penalise expensive cards — a Giant at 8 elixir is rewarded the
+    same as skeletons at 8 elixir.
 
     Parameters
     ----------
-    leak_sensitivity : float
-        Sigmoid steepness for leaked-elixir penalty (0.1 = gentle, 2.0 = harsh).
+    comfort_threshold : float
+        Elixir level at which spending is neutral (default 7.0).
     """
 
     def __init__(
         self,
         weight: float = 1.0,
-        leak_sensitivity: float = 0.5,
+        comfort_threshold: float = 6.0,
     ) -> None:
         super().__init__(weight)
-        self._leak_k = leak_sensitivity
+        self._threshold = comfort_threshold
 
     def compute(self, ctx: RewardContext) -> float:
-        reward = 0.0
-
-        # Leaked elixir penalty — fires every frame when there is new leakage
-        leaked_delta = ctx.leaked_elixir - ctx.prev_leaked_elixir
-        if leaked_delta > 0:
-            reward -= self._sigmoid_norm(leaked_delta)
-
-        return reward
-
-    def _sigmoid_norm(self, x: float) -> float:
-        """Map [0, ∞) → [0, 1) with tuneable sensitivity."""
-        if x <= 0:
+        # Only fires on the action frame when a card was actually played
+        if not ctx.is_action_frame or ctx.played_card_cost <= 0:
             return 0.0
-        return 2.0 / (1.0 + math.exp(-self._leak_k * x)) - 1.0
+        return (ctx.current_elixir - self._threshold) / 10.0
 
 
 class TerminalComponent(RewardComponent):

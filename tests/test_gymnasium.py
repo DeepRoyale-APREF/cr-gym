@@ -240,21 +240,32 @@ class TestRewardComponents:
         assert reward == 10.0
 
     def test_elixir_component_no_penalty_at_start(self) -> None:
-        comp = ElixirComponent(weight=1.0)
+        comp = ElixirComponent(weight=1.0, comfort_threshold=7.0)
         ctx = self._base_ctx()
         ctx.current_elixir = 5.0
-        ctx.troop_elixir_value = 0.0
+        ctx.played_card_cost = 0.0
         reward = comp.compute(ctx)
-        # small deficit penalty only, not huge
-        assert reward <= 0
+        assert reward == 0.0  # no card played, no signal
 
-    def test_elixir_leaked_penalty(self) -> None:
-        comp = ElixirComponent(weight=1.0, leak_sensitivity=1.0)
+    def test_elixir_penalises_low_elixir_play(self) -> None:
+        comp = ElixirComponent(weight=1.0, comfort_threshold=7.0)
         ctx = self._base_ctx()
-        ctx.leaked_elixir = 5.0
-        ctx.prev_leaked_elixir = 0.0
+        ctx.is_action_frame = True
+        ctx.played_card_cost = 3.0
+        ctx.current_elixir = 3.0   # playing while poor
         reward = comp.compute(ctx)
-        assert reward < -0.1  # should be penalised
+        assert reward < 0  # should be penalised
+        assert abs(reward - (-4.0 / 10.0)) < 1e-6  # (3 - 7) / 10 = -0.4
+
+    def test_elixir_rewards_high_elixir_play(self) -> None:
+        comp = ElixirComponent(weight=1.0, comfort_threshold=7.0)
+        ctx = self._base_ctx()
+        ctx.is_action_frame = True
+        ctx.played_card_cost = 5.0
+        ctx.current_elixir = 10.0  # spending surplus
+        reward = comp.compute(ctx)
+        assert reward > 0  # surplus spending is rewarded
+        assert abs(reward - (3.0 / 10.0)) < 1e-6  # (10 - 7) / 10 = 0.3
 
     def test_composite_reward_function(self) -> None:
         rf = default_reward_function()

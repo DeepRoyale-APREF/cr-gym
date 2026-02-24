@@ -37,6 +37,8 @@ class RewardContext:
     leaked_elixir: float = 0.0
     prev_leaked_elixir: float = 0.0
     mean_deck_cost: float = 0.0
+    played_card_cost: float = 0.0
+    """Elixir cost of the card played this step (0.0 if noop)."""
 
     # ── Troop value (for defensive reward) ────────────────────────────────
     enemy_troop_elixir_value: float = 0.0

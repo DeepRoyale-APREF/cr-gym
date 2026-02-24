@@ -18,7 +18,7 @@ def default_reward_function(
     terminal_weight=1,
     princess_reward=5.0,
     win_reward=10.0,
-    leak_sensitivity=0.5,
+    comfort_threshold=6.0,
 ) -> RewardFunction:
     """Create the default reward function with tuneable weights.
 
@@ -29,15 +29,15 @@ def default_reward_function(
     defensive_weight : float
         Weight for killing enemy troops (defensive play).
     elixir_weight : float
-        Weight for leaked-elixir penalty.
+        Weight for elixir-patience signal (penalise spending at low elixir).
     terminal_weight : float
         Weight for princess-destroy and win/loss rewards.
     princess_reward : float
         Reward per princess tower destroyed.
     win_reward : float
         Reward for winning the match.
-    leak_sensitivity : float
-        How aggressively leaked elixir is penalised (0.1=gentle, 2.0=harsh).
+    comfort_threshold : float
+        Elixir level at which spending is neutral (default 7.0).
     """
     return RewardFunction(
         [
@@ -45,7 +45,7 @@ def default_reward_function(
             DefensiveComponent(weight=defensive_weight),
             ElixirComponent(
                 weight=elixir_weight,
-                leak_sensitivity=leak_sensitivity,
+                comfort_threshold=comfort_threshold,
             ),
             TerminalComponent(
                 weight=terminal_weight,
